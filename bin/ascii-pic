@@ -1,0 +1,391 @@
+#!/usr/bin/env node
+
+/**
+ * ASCII-PIC CLI Tool
+ * Command line interface for converting images to ASCII art
+ */
+
+const { program } = require("commander");
+const chalk = require("chalk");
+const ora = require("ora");
+const path = require("path");
+const fs = require("fs").promises;
+
+const {
+    convertAndSave,
+    getImageInfo,
+    previewAscii,
+    getAvailableCharsets,
+    getCharsetInfo,
+    isSupportedImageFormat,
+    ensureDir,
+    generateOutputPath,
+    formatFileSize,
+    AsciiPic,
+} = require("../src/index");
+
+// Package info
+const packageJson = require("../package.json");
+
+// Configure commander
+program
+    .name("ascii-pic")
+    .description("Transform any image into beautiful ASCII art")
+    .version(packageJson.version);
+
+// Main convert command
+program
+    .argument("<input>", "Input image file or glob pattern")
+    .option("-w, --width <number>", "ASCII art width in characters", "80")
+    .option("-c, --charset <name>", "Character set to use", "detailed")
+    .option("-o, --output <file>", "Output file path")
+    .option("--output-dir <dir>", "Output directory for batch processing")
+    .option("--contrast <number>", "Contrast adjustment (0.1-5.0)", "1.2")
+    .option("--aspect-ratio <number>", "Aspect ratio correction", "0.5")
+    .option("--invert", "Invert brightness values")
+    .option("--batch", "Enable batch processing mode")
+    .option("--preview <lines>", "Show preview (number of lines)", "0")
+    .option("--info", "Show image information only")
+    .option("--quiet", "Suppress output messages")
+    .option("--overwrite", "Overwrite existing files without confirmation")
+    .action(async (input, options) => {
+        try {
+            await handleConvert(input, options);
+        } catch (error) {
+            console.error(chalk.red("Error:"), error.message);
+            process.exit(1);
+        }
+    });
+
+// List charsets command
+program
+    .command("charsets")
+    .description("List available character sets")
+    .action(() => {
+        console.log(chalk.cyan("Available Character Sets:\n"));
+
+        const charsets = getCharsetInfo();
+        charsets.forEach(({ name, chars, length }) => {
+            console.log(chalk.yellow(`${name}:`));
+            console.log(`  Preview: ${chalk.white(chars)}`);
+            console.log(`  Length:  ${length} characters\n`);
+        });
+    });
+
+// Info command
+program
+    .command("info <input>")
+    .description("Show detailed image information")
+    .action(async (input) => {
+        try {
+            await handleInfo(input);
+        } catch (error) {
+            console.error(chalk.red("Error:"), error.message);
+            process.exit(1);
+        }
+    });
+
+/**
+ * Handle main conversion command
+ */
+async function handleConvert(input, options) {
+    const spinner = options.quiet ? null : ora();
+
+    try {
+        // Parse numeric options
+        const width = parseInt(options.width);
+        const contrast = parseFloat(options.contrast);
+        const aspectRatio = parseFloat(options.aspectRatio);
+        const previewLines = parseInt(options.preview);
+
+        if (isNaN(width) || width < 10 || width > 500) {
+            throw new Error("Width must be a number between 10 and 500");
+        }
+
+        // Validate charset
+        const availableCharsets = getAvailableCharsets();
+        if (!availableCharsets.includes(options.charset)) {
+            throw new Error(
+                `Unknown charset: ${
+                    options.charset
+                }. Available: ${availableCharsets.join(", ")}`
+            );
+        }
+
+        // Check if input file exists (for single file mode)
+        if (!options.batch) {
+            try {
+                await fs.access(input);
+                if (!isSupportedImageFormat(input)) {
+                    throw new Error(`Unsupported image format: ${input}`);
+                }
+            } catch (error) {
+                throw new Error(`Cannot access input file: ${input}`);
+            }
+        }
+
+        const convertOptions = {
+            width,
+            charset: options.charset,
+            contrast,
+            aspectRatio,
+            invert: options.invert || false,
+            outputDir: options.outputDir,
+        };
+
+        // Show info only
+        if (options.info) {
+            spinner?.start("Reading image information...");
+            const info = await getImageInfo(input);
+            spinner?.stop();
+
+            console.log(chalk.cyan("Image Information:"));
+            console.log(`  File:     ${path.basename(input)}`);
+            console.log(`  Format:   ${info.format.toUpperCase()}`);
+            console.log(`  Size:     ${info.width} × ${info.height} pixels`);
+            console.log(`  Channels: ${info.channels}`);
+            console.log(`  Alpha:    ${info.hasAlpha ? "Yes" : "No"}`);
+            if (info.density) console.log(`  Density:  ${info.density} DPI`);
+            if (info.size)
+                console.log(`  File Size: ${formatFileSize(info.size)}`);
+
+            // Show ASCII dimensions
+            const asciiHeight = Math.floor(
+                (info.height / info.width) * width * aspectRatio
+            );
+            console.log(`\n${chalk.yellow("ASCII Output Dimensions:")}`);
+            console.log(`  Width:    ${width} characters`);
+            console.log(`  Height:   ${asciiHeight} lines`);
+            console.log(`  Ratio:    ${(width / asciiHeight).toFixed(2)}:1`);
+            return;
+        }
+
+        // Show preview only
+        if (previewLines > 0) {
+            spinner?.start(`Generating ${previewLines}-line preview...`);
+            const preview = await previewAscii(
+                input,
+                convertOptions,
+                previewLines
+            );
+            spinner?.stop();
+
+            console.log(chalk.cyan("ASCII Preview:"));
+            console.log(chalk.gray("─".repeat(Math.min(width, 60))));
+            console.log(preview);
+            console.log(chalk.gray("─".repeat(Math.min(width, 60))));
+            return;
+        }
+
+        // Batch processing
+        if (options.batch) {
+            await handleBatchConvert(input, convertOptions, options, spinner);
+            return;
+        }
+
+        // Single file conversion
+        const outputPath = options.output || generateOutputPath(input);
+
+        // Check for existing file
+        if (!options.overwrite) {
+            try {
+                await fs.access(outputPath);
+                const answer = await askConfirmation(
+                    `File ${outputPath} already exists. Overwrite?`
+                );
+                if (!answer) {
+                    console.log(chalk.yellow("Operation cancelled."));
+                    return;
+                }
+            } catch {
+                // File doesn't exist, continue
+            }
+        }
+
+        spinner?.start("Converting image to ASCII art...");
+        const result = await convertAndSave(input, outputPath, convertOptions);
+        spinner?.stop();
+
+        if (result.success) {
+            if (!options.quiet) {
+                console.log(chalk.green("✓ Conversion successful!"));
+                console.log(`  Input:       ${result.inputFile}`);
+                console.log(`  Output:      ${result.outputFile}`);
+                console.log(
+                    `  Size:        ${formatFileSize(result.fileSize)}`
+                );
+                console.log(`  Lines:       ${result.lines}`);
+                console.log(
+                    `  Characters:  ${result.characters.toLocaleString()}`
+                );
+                console.log(`  Time:        ${result.processingTime}ms`);
+            }
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        spinner?.stop();
+        throw error;
+    }
+}
+
+/**
+ * Handle batch conversion
+ */
+async function handleBatchConvert(
+    inputPattern,
+    convertOptions,
+    options,
+    spinner
+) {
+    const asciiPic = new AsciiPic(convertOptions);
+
+    spinner?.start("Finding matching files...");
+
+    try {
+        const results = await asciiPic.batchConvert(
+            inputPattern,
+            convertOptions
+        );
+        spinner?.stop();
+
+        if (results.length === 0) {
+            console.log(chalk.yellow("No files processed."));
+            return;
+        }
+
+        // Display results
+        console.log(
+            chalk.cyan(
+                `\nBatch Conversion Results (${results.length} files):\n`
+            )
+        );
+
+        let successCount = 0;
+        let failureCount = 0;
+        let totalSize = 0;
+        let totalTime = 0;
+
+        results.forEach((result, index) => {
+            const status = result.success ? chalk.green("✓") : chalk.red("✗");
+            const filename = path.basename(result.inputFile);
+
+            if (result.success) {
+                successCount++;
+                totalSize += result.fileSize;
+                totalTime += result.processingTime;
+
+                if (!options.quiet) {
+                    console.log(
+                        `${status} ${filename} → ${path.basename(
+                            result.outputFile
+                        )}`
+                    );
+                }
+            } else {
+                failureCount++;
+                console.log(
+                    `${status} ${filename} - ${chalk.red(result.error)}`
+                );
+            }
+        });
+
+        // Summary
+        console.log(chalk.cyan("\nSummary:"));
+        console.log(`  Successful: ${chalk.green(successCount)}`);
+        console.log(`  Failed:     ${chalk.red(failureCount)}`);
+        console.log(`  Total size: ${formatFileSize(totalSize)}`);
+        console.log(`  Total time: ${totalTime}ms`);
+    } catch (error) {
+        spinner?.stop();
+        throw error;
+    }
+}
+
+/**
+ * Handle info command
+ */
+async function handleInfo(input) {
+    try {
+        const info = await getImageInfo(input);
+
+        console.log(chalk.cyan("Detailed Image Information:\n"));
+        console.log(`${chalk.yellow("File:")} ${input}`);
+        console.log(`${chalk.yellow("Format:")} ${info.format.toUpperCase()}`);
+        console.log(
+            `${chalk.yellow("Dimensions:")} ${info.width} × ${
+                info.height
+            } pixels`
+        );
+        console.log(
+            `${chalk.yellow("Aspect Ratio:")} ${(
+                info.width / info.height
+            ).toFixed(3)}:1`
+        );
+        console.log(`${chalk.yellow("Channels:")} ${info.channels}`);
+        console.log(
+            `${chalk.yellow("Has Alpha:")} ${info.hasAlpha ? "Yes" : "No"}`
+        );
+
+        if (info.density) {
+            console.log(`${chalk.yellow("Density:")} ${info.density} DPI`);
+        }
+
+        if (info.size) {
+            console.log(
+                `${chalk.yellow("File Size:")} ${formatFileSize(info.size)}`
+            );
+        }
+
+        // ASCII conversion estimates
+        console.log(chalk.cyan("\nASCII Conversion Estimates:"));
+
+        const widths = [40, 80, 120, 160];
+        const aspectRatio = 0.5;
+
+        widths.forEach((width) => {
+            const height = Math.floor(
+                (info.height / info.width) * width * aspectRatio
+            );
+            const chars = width * height;
+            const ratio = width / height;
+
+            console.log(
+                `  ${width}w × ${height}h (${chars.toLocaleString()} chars, ratio: ${ratio.toFixed(
+                    2
+                )}:1)`
+            );
+        });
+    } catch (error) {
+        throw new Error(`Cannot read image info: ${error.message}`);
+    }
+}
+
+/**
+ * Ask for user confirmation
+ */
+async function askConfirmation(message) {
+    // Simple confirmation for now - in production you might use inquirer
+    process.stdout.write(`${message} (y/N) `);
+
+    return new Promise((resolve) => {
+        process.stdin.once("data", (data) => {
+            const answer = data.toString().trim().toLowerCase();
+            resolve(answer === "y" || answer === "yes");
+        });
+    });
+}
+
+// Error handling for uncaught exceptions
+process.on("uncaughtException", (error) => {
+    console.error(chalk.red("\nUnexpected error:"), error.message);
+    process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+    console.error(chalk.red("\nUnhandled promise rejection:"), reason);
+    process.exit(1);
+});
+
+// Parse command line arguments
+program.parse();

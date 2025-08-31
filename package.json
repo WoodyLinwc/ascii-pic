@@ -24,7 +24,7 @@
         "text-art",
         "image-processing"
     ],
-    "author": "Woody Lin <woody.lin001@gmail.com>",
+    "author": "Your Name <your.email@example.com>",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -38,7 +38,8 @@
         "sharp": "^0.33.0",
         "commander": "^11.1.0",
         "chalk": "^4.1.2",
-        "ora": "^5.4.1"
+        "ora": "^5.4.1",
+        "glob": "^10.3.0"
     },
     "devDependencies": {
         "jest": "^29.7.0",
