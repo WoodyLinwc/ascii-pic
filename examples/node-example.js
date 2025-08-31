@@ -19,7 +19,11 @@ async function runExamples() {
     console.log("🎨 ASCII-PIC Node.js Examples\n");
 
     // Note: You'll need to add some sample images to examples/sample-images/
-    const sampleImage = path.join(__dirname, "sample-images", "demo.jpg");
+    const sampleImage = path.join(
+        __dirname,
+        "sample-images",
+        "my-cat-friday.png"
+    );
 
     try {
         console.log("📸 Example 1: Basic conversion");
