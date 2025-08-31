@@ -4,7 +4,7 @@
     "description": "Transform any image into beautiful ASCII art - CLI tool and Node.js package",
     "main": "src/index.js",
     "bin": {
-        "ascii-pic": "./bin/ascii-pic"
+        "ascii-pic": "bin/ascii-pic"
     },
     "scripts": {
         "test": "jest",
@@ -28,7 +28,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/WoodyLinwc/ascii-pic.git"
+        "url": "git+https://github.com/WoodyLinwc/ascii-pic.git"
     },
     "bugs": {
         "url": "https://github.com/WoodyLinwc/ascii-pic/issues"
