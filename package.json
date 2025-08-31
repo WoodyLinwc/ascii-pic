@@ -1,0 +1,56 @@
+{
+    "name": "ascii-pic",
+    "version": "1.0.0",
+    "description": "Transform any image into beautiful ASCII art - CLI tool and Node.js package",
+    "main": "src/index.js",
+    "bin": {
+        "ascii-pic": "./bin/ascii-pic"
+    },
+    "scripts": {
+        "test": "jest",
+        "start": "node examples/node-example.js",
+        "build": "npm run test",
+        "prepare": "npm run build",
+        "example:cli": "node bin/ascii-pic examples/sample-images/demo.jpg",
+        "example:node": "node examples/node-example.js"
+    },
+    "keywords": [
+        "ascii",
+        "art",
+        "image",
+        "converter",
+        "cli",
+        "terminal",
+        "text-art",
+        "image-processing"
+    ],
+    "author": "Woody Lin <woody.lin001@gmail.com>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/WoodyLinwc/ascii-pic.git"
+    },
+    "bugs": {
+        "url": "https://github.com/WoodyLinwc/ascii-pic/issues"
+    },
+    "homepage": "https://github.com/WoodyLinwc/ascii-pic#readme",
+    "dependencies": {
+        "sharp": "^0.33.0",
+        "commander": "^11.1.0",
+        "chalk": "^4.1.2",
+        "ora": "^5.4.1"
+    },
+    "devDependencies": {
+        "jest": "^29.7.0",
+        "@types/jest": "^29.5.8"
+    },
+    "engines": {
+        "node": ">=14.0.0"
+    },
+    "files": [
+        "src/",
+        "bin/",
+        "README.md",
+        "LICENSE"
+    ]
+}
